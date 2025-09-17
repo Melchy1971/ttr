@@ -7,13 +7,16 @@ Dieses Tool ermöglicht das komfortable Auslesen und Exportieren von Q-TTR-Werte
 ## Features
 
 - **Einfache GUI**: Übersichtliche Oberfläche für alle Einstellungen und Aktionen
+- **Fenster startet immer maximiert**
 - **Gruppenverwaltung**: Gruppen (Name & ID) können komfortabel verwaltet und in einer frei wählbaren Datei gespeichert werden (`gruppen.json`)
 - **Konfigurationsspeicherung**: Alle Einstellungen (inkl. Gruppen-Dateipfad) werden in `config.json` gespeichert und beim Start automatisch geladen
 - **Abruf & Parsing**: Q-TTR-Daten werden robust abgerufen (mit HTTP-Retry & Cache) und geparst
 - **Sortierbare Tabelle**: Vorschau der Daten mit Sortierfunktion
 - **Export**: Datenexport als JSON, CSV, Markdown oder XLSX (inkl. Team-Statistiken und Top-10)
 - **Team-Mittelwerte**: Automatische Berechnung und Anzeige der Team-Durchschnitte
+- **Druckfunktion**: Über den Button **"Drucken"** kann eine PDF erzeugt und direkt gedruckt werden (inkl. Vorschau und Optionen)
 - **Plattformneutral**: Läuft unter Windows, Linux und macOS
+- **Exit-Button**: Beendet das Programm sauber
 
 ---
 
@@ -26,11 +29,12 @@ Dieses Tool ermöglicht das komfortable Auslesen und Exportieren von Q-TTR-Werte
   - `beautifulsoup4`
   - `openpyxl`
   - `platformdirs`
+  - `reportlab`
 
 Installiere die Abhängigkeiten mit:
 
 ```
-pip install requests requests_cache beautifulsoup4 openpyxl platformdirs
+pip install requests requests_cache beautifulsoup4 openpyxl platformdirs reportlab
 ```
 
 ---
@@ -59,8 +63,14 @@ pip install requests requests_cache beautifulsoup4 openpyxl platformdirs
    - Mit **"Abrufen"** werden die Daten geladen und in der Tabelle angezeigt.
    - Mit **"Speichern …"** können die Daten im gewählten Format exportiert werden.
 
-5. **Konfiguration speichern**  
+5. **Drucken**
+   - Über den Button **"Drucken"** kann eine PDF erzeugt und direkt gedruckt werden (inkl. Vorschau und Optionen).
+
+6. **Konfiguration speichern**  
    Über **"Einstellung"** kann die aktuelle Konfiguration als Standard gespeichert werden (`config.json`).
+
+7. **Beenden**
+   - Über den **"Exit"**-Button wird das Programm sauber geschlossen.
 
 ---
 
