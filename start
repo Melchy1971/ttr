@@ -486,6 +486,8 @@ class TTRScraperGUI:
         self.root.bind("<Control-s>", lambda e: self.on_export())
         self.root.bind("<Control-p>", lambda e: self.on_print())
         self.root.bind("<Escape>",    lambda e: self.on_cancel() if str(self.btn_cancel['state']) == 'normal' else None)
+        # NEU:
+        self.root.bind("<F1>",        lambda e: self.on_info())
 
     # -------------------- Helpers --------------------
 

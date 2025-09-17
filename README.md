@@ -1,4 +1,4 @@
-# click-TT Q-TTR Scraper (Weg 1, groupPools) – GUI
+# click-TT Q-TTR Scraper – GUI
 
 Dieses Tool ermöglicht das komfortable Auslesen und Exportieren von Q-TTR-Werten aus click-TT für beliebige Gruppen, Saisons und Runden. Die grafische Oberfläche erlaubt eine einfache Bedienung und den Export der Daten als JSON, CSV, Markdown oder Excel.
 
@@ -15,8 +15,11 @@ Dieses Tool ermöglicht das komfortable Auslesen und Exportieren von Q-TTR-Werte
 - **Export**: Datenexport als JSON, CSV, Markdown oder XLSX (inkl. Team-Statistiken und Top-10)
 - **Team-Mittelwerte**: Automatische Berechnung und Anzeige der Team-Durchschnitte
 - **Druckfunktion**: Über den Button **"Drucken"** kann eine PDF erzeugt und direkt gedruckt werden (inkl. Vorschau und Optionen)
+- **Kontextmenü**: Rechtsklick auf eine Tabellenzeile kopiert diese als TSV in die Zwischenablage
+- **Shortcuts**: z.B. `Ctrl+S` (Speichern), `Ctrl+P` (Drucken), `Esc` (Abruf abbrechen), `F1` (Info)
 - **Plattformneutral**: Läuft unter Windows, Linux und macOS
 - **Exit-Button**: Beendet das Programm sauber
+- **Info-Box**: Über den Button **"Info"** oder `F1` werden Name, Version, Autor und Lizenz angezeigt
 
 ---
 
@@ -71,6 +74,9 @@ pip install requests requests_cache beautifulsoup4 openpyxl platformdirs reportl
 
 7. **Beenden**
    - Über den **"Exit"**-Button wird das Programm sauber geschlossen.
+
+8. **Info anzeigen**
+   - Über den **"Info"**-Button oder die Taste `F1` werden Name, Version, Autor und Lizenz angezeigt.
 
 ---
 
