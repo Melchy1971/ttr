@@ -1,0 +1,389 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+GUI zum Auslesen der Q-TTR-Werte aus click-TT (Weg 1: groupPools scrapen).
+
+Voreinstellungen:
+- Base-URL: https://ttbw.click-tt.de
+- Saison:    TTBW 2025/26   (prüfe die Schreibweise in der echten URL, z.B. ggf. "TTBW 25/26")
+- Runde:     vorrunde
+- Group-ID:  494514
+
+Funktionen:
+- Eingabemaske für Base-URL, Saison, Runde, Group-ID, Sprache, Datenformat
+- Abruf & Parsing (requests + BeautifulSoup)
+- Vorschau in einer Tabelle
+- Export als JSON/CSV/Markdown
+- Exit-Button
+
+Hinweis: Respektiere Nutzungsbedingungen/Rate-Limits der Portale.
+"""
+
+import csv
+import json
+import re
+import sys
+import threading
+from statistics import mean
+from typing import Dict, List, Optional
+from urllib.parse import quote
+
+import requests
+from bs4 import BeautifulSoup
+
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+
+# -------------------------------
+# Scraping-Logik (Weg 1)
+# -------------------------------
+
+def build_url(base_url: str, saison: str, runde: str, group_id: str) -> str:
+    base = base_url.rstrip("/")
+    return (
+        f"{base}/cgi-bin/WebObjects/nuLigaTTDE.woa/wa/groupPools"
+        f"?championship={quote(saison)}&displayTyp={runde}&group={group_id}"
+    )
+
+def fetch_html(url: str, timeout: int = 30) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; ttr-gui/1.0; +https://example.org/bot-info)"
+    }
+    resp = requests.get(url, headers=headers, timeout=timeout)
+    resp.raise_for_status()
+    return resp.text
+
+def looks_like_login_or_error(html: str) -> Optional[str]:
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text(" ", strip=True).lower()
+    hints = [
+        "anmeldung", "login", "zugriff verweigert", "nicht berechtigt",
+        "session abgelaufen", "access denied", "forbidden"
+    ]
+    for h in hints:
+        if h in text:
+            return h
+    if not soup.find("table"):
+        return "keine tabellen gefunden"
+    return None
+
+def parse_group_pools(html: str) -> List[Dict]:
+    soup = BeautifulSoup(html, "html.parser")
+    results: List[Dict] = []
+
+    for heading in soup.find_all(["h2", "h3", "h4"]):
+        team = heading.get_text(strip=True)
+        if not team:
+            continue
+
+        table = heading.find_next(
+            lambda tag: tag.name == "table" and tag.find("thead")
+        )
+        if not table:
+            continue
+
+        headers = [th.get_text(" ", strip=True).lower() for th in table.select("thead th")]
+        try:
+            idx_qttr = next(i for i, h in enumerate(headers) if "q-ttr" in h or "qttr" in h)
+        except StopIteration:
+            # nicht die gewünschte Tabelle
+            continue
+
+        idx_rang = next((i for i, h in enumerate(headers) if h.startswith("rang") or h.startswith("pos")), None)
+        idx_name = next((i for i, h in enumerate(headers) if "name" in h), None)
+
+        for row in table.select("tbody tr"):
+            cols = [td.get_text(" ", strip=True) for td in row.find_all("td")]
+            if not cols or len(cols) <= idx_qttr:
+                continue
+
+            qttr_raw = cols[idx_qttr]
+            qttr_num = re.sub(r"[^\d\-]", "", qttr_raw)
+            qttr_val = int(qttr_num) if qttr_num.isdigit() else None
+
+            rang_val = cols[idx_rang] if (idx_rang is not None and idx_rang < len(cols)) else ""
+            name_val = cols[idx_name] if (idx_name is not None and idx_name < len(cols)) else ""
+
+            # optionale Zusatzspalten, wenn vorhanden
+            extra = {}
+            if len(cols) >= 4:
+                extra["anmerkung"] = cols[3]
+            if len(cols) >= 5:
+                extra["status"] = cols[4]
+
+            item = {
+                "team": team,
+                "rang": rang_val,
+                "qttr": qttr_val,
+                "name": name_val,
+                **extra
+            }
+            if item["name"] or item["qttr"] is not None:
+                results.append(item)
+
+    return results
+
+def export_rows(rows: List[Dict], datenformat: str, sprache: str, path: str) -> None:
+    headers_de = ["Team", "Rang", "Q-TTR", "Name", "Anmerkung", "Status"]
+    headers_en = ["Team", "Slot", "Q-TTR", "Name", "Note", "Status"]
+    headers = headers_de if sprache.lower().startswith("de") else headers_en
+
+    def row_to_list(r: Dict) -> List:
+        return [
+            r.get("team", ""),
+            r.get("rang", ""),
+            r.get("qttr", ""),
+            r.get("name", ""),
+            r.get("anmerkung", ""),
+            r.get("status", ""),
+        ]
+
+    if datenformat == "json":
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rows, f, ensure_ascii=False, indent=2)
+    elif datenformat == "csv":
+        # utf-8-sig für Excel-Kompatibilität
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(headers)
+            for r in rows:
+                w.writerow(row_to_list(r))
+    elif datenformat == "markdown":
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("| " + " | ".join(headers) + " |\n")
+            f.write("|" + "|".join(["---"] * len(headers)) + "|\n")
+            for r in rows:
+                vals = row_to_list(r)
+                f.write("| " + " | ".join("" if v is None else str(v) for v in vals) + " |\n")
+    else:
+        raise ValueError(f"Unbekanntes Datenformat: {datenformat}")
+
+# -------------------------------
+# GUI
+# -------------------------------
+
+class TTRScraperGUI:
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        root.title("click-TT Q-TTR Scraper (Weg 1)")
+
+        # Eingaben
+        frm = ttk.Frame(root, padding=12)
+        frm.grid(row=0, column=0, sticky="nsew")
+
+        root.columnconfigure(0, weight=1)
+        root.rowconfigure(0, weight=1)
+        for i in range(6):
+            frm.columnconfigure(i, weight=1)
+
+        # Voreinstellungen nach Vorgabe:
+        self.var_base   = tk.StringVar(value="https://ttbw.click-tt.de")
+        self.var_saison = tk.StringVar(value="TTBW 2025/26")  # ggf. in der echten URL "TTBW 25/26"
+        self.var_runde  = tk.StringVar(value="vorrunde")
+        self.var_group  = tk.StringVar(value="494514")
+        self.var_sprache = tk.StringVar(value="de")
+        self.var_format  = tk.StringVar(value="json")
+
+        r = 0
+        ttk.Label(frm, text="Base-URL (Verband)").grid(row=r, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=self.var_base).grid(row=r, column=1, columnspan=5, sticky="ew", padx=6, pady=3)
+
+        r += 1
+        ttk.Label(frm, text="Saison (genau wie in URL)").grid(row=r, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=self.var_saison).grid(row=r, column=1, columnspan=2, sticky="ew", padx=6, pady=3)
+
+        ttk.Label(frm, text="Runde").grid(row=r, column=3, sticky="e")
+        self.cmb_runde = ttk.Combobox(frm, textvariable=self.var_runde, values=["vorrunde", "rueckrunde"], state="readonly")
+        self.cmb_runde.grid(row=r, column=4, sticky="ew", padx=6)
+
+        r += 1
+        ttk.Label(frm, text="Group-ID (…group=####)").grid(row=r, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=self.var_group).grid(row=r, column=1, sticky="ew", padx=6, pady=3)
+
+        ttk.Label(frm, text="Sprache").grid(row=r, column=2, sticky="e")
+        self.cmb_sprache = ttk.Combobox(frm, textvariable=self.var_sprache, values=["de", "en"], state="readonly")
+        self.cmb_sprache.grid(row=r, column=3, sticky="ew", padx=6)
+
+        ttk.Label(frm, text="Datenformat").grid(row=r, column=4, sticky="e")
+        self.cmb_format = ttk.Combobox(frm, textvariable=self.var_format, values=["json", "csv", "markdown"], state="readonly")
+        self.cmb_format.grid(row=r, column=5, sticky="ew", padx=6)
+
+        # Buttons
+        r += 1
+        btn_frame = ttk.Frame(frm)
+        btn_frame.grid(row=r, column=0, columnspan=6, sticky="ew", pady=(6, 3))
+        for i in range(4):
+            btn_frame.columnconfigure(i, weight=1)
+
+        self.btn_fetch = ttk.Button(btn_frame, text="Abrufen", command=self.on_fetch)
+        self.btn_fetch.grid(row=0, column=0, padx=4, sticky="ew")
+
+        self.btn_export = ttk.Button(btn_frame, text="Speichern …", command=self.on_export, state="disabled")
+        self.btn_export.grid(row=0, column=1, padx=4, sticky="ew")
+
+        self.btn_clear = ttk.Button(btn_frame, text="Leeren", command=self.on_clear)
+        self.btn_clear.grid(row=0, column=2, padx=4, sticky="ew")
+
+        self.btn_exit = ttk.Button(btn_frame, text="Exit", command=root.destroy)
+        self.btn_exit.grid(row=0, column=3, padx=4, sticky="ew")
+
+        # Status + Vorschau
+        r += 1
+        ttk.Label(frm, text="Status").grid(row=r, column=0, sticky="w")
+        self.txt_status = tk.Text(frm, height=5, wrap="word")
+        self.txt_status.grid(row=r, column=1, columnspan=5, sticky="nsew", padx=6, pady=3)
+
+        r += 1
+        ttk.Label(frm, text="Vorschau").grid(row=r, column=0, sticky="w")
+        self.tree = ttk.Treeview(frm, columns=("team", "rang", "qttr", "name", "anmerkung", "status"), show="headings", height=12)
+        for col, text in [
+            ("team", "Team"),
+            ("rang", "Rang"),
+            ("qttr", "Q-TTR"),
+            ("name", "Name"),
+            ("anmerkung", "Anmerkung"),
+            ("status", "Status"),
+        ]:
+            self.tree.heading(col, text=text)
+            self.tree.column(col, stretch=True, width=120)
+        self.tree.grid(row=r, column=1, columnspan=5, sticky="nsew", padx=6, pady=3)
+
+        # Resize behavior
+        frm.rowconfigure(r-1, weight=0)   # status
+        frm.rowconfigure(r,   weight=1)   # table
+
+        # Datencontainer
+        self.rows: List[Dict] = []
+
+    # ------------- GUI Helpers -------------
+
+    def log(self, msg: str):
+        self.txt_status.insert("end", msg + "\n")
+        self.txt_status.see("end")
+
+    def set_busy(self, busy: bool):
+        state = "disabled" if busy else "normal"
+        self.btn_fetch.config(state=state)
+        self.btn_export.config(state=("normal" if (not busy and self.rows) else "disabled"))
+
+    def on_clear(self):
+        self.txt_status.delete("1.0", "end")
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        self.rows = []
+        self.btn_export.config(state="disabled")
+
+    # ------------- Actions -------------
+
+    def on_fetch(self):
+        base = self.var_base.get().strip()
+        saison = self.var_saison.get().strip()
+        runde = self.var_runde.get().strip()
+        group = self.var_group.get().strip()
+
+        if not base or not saison or not runde or not group:
+            messagebox.showwarning("Eingabe fehlt", "Bitte Base-URL, Saison, Runde und Group-ID angeben.")
+            return
+
+        url = build_url(base, saison, runde, group)
+        self.on_clear()
+        self.log(f"Abruf: {url}")
+        self.set_busy(True)
+
+        threading.Thread(target=self._fetch_thread, args=(url,), daemon=True).start()
+
+    def _fetch_thread(self, url: str):
+        try:
+            html = fetch_html(url)
+            issue = looks_like_login_or_error(html)
+            if issue:
+                self.root.after(0, lambda: self._abort(f"Seite wirkt gesperrt/unerwartet: {issue}."))
+                return
+            rows = parse_group_pools(html)
+            if not rows:
+                self.root.after(0, lambda: self._abort("Keine Q-TTR-Daten gefunden (prüfe Saison/Runde/Group-ID)."))
+                return
+            avgs = self._team_avgs(rows)
+            self.root.after(0, lambda: self._update_rows(rows, avgs))
+        except Exception as e:
+            self.root.after(0, lambda: self._abort(f"Fehler: {e}"))
+
+    def _team_avgs(self, rows: List[Dict]) -> Dict[str, Optional[float]]:
+        avgs: Dict[str, Optional[float]] = {}
+        teams = sorted({r["team"] for r in rows})
+        for t in teams:
+            vals = [r["qttr"] for r in rows if r["team"] == t and isinstance(r["qttr"], int)]
+            avgs[t] = (mean(vals) if vals else None)
+        return avgs
+
+    def _abort(self, msg: str):
+        self.log(msg)
+        self.set_busy(False)
+        self.btn_export.config(state="disabled")
+
+    def _update_rows(self, rows: List[Dict], avgs: Dict[str, Optional[float]]):
+        self.rows = rows
+        # Vorschau füllen
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        for r in rows:
+            self.tree.insert("", "end", values=(
+                r.get("team",""),
+                r.get("rang",""),
+                r.get("qttr",""),
+                r.get("name",""),
+                r.get("anmerkung",""),
+                r.get("status",""),
+            ))
+        # Team-Mittelwerte ins Statuslog
+        self.log(f"{len(rows)} Zeilen geladen.")
+        self.log("Team-Mittel (Q-TTR):")
+        for t, v in avgs.items():
+            self.log(f"  • {t}: {'' if v is None else round(v,1)}")
+        self.set_busy(False)
+        self.btn_export.config(state="normal")
+
+    def on_export(self):
+        if not self.rows:
+            messagebox.showinfo("Nichts zu speichern", "Keine Daten geladen.")
+            return
+        fmt = self.var_format.get()
+        sprache = self.var_sprache.get()
+        ext_map = {"json": ".json", "csv": ".csv", "markdown": ".md"}
+        if fmt not in ext_map:
+            messagebox.showerror("Fehler", f"Unbekanntes Format: {fmt}")
+            return
+        ext = ext_map[fmt]
+        path = filedialog.asksaveasfilename(
+            title="Speichern unter",
+            defaultextension=ext,
+            filetypes=[
+                ("JSON", "*.json"),
+                ("CSV", "*.csv"),
+                ("Markdown", "*.md"),
+                ("Alle Dateien", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        try:
+            export_rows(self.rows, fmt, sprache, path)
+            messagebox.showinfo("Gespeichert", f"Erfolg: {path}")
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Konnte nicht speichern:\n{e}")
+
+def main():
+    root = tk.Tk()
+    # optionales DPI-Scaling für Windows
+    try:
+        if sys.platform.startswith("win"):
+            from ctypes import windll
+            windll.shcore.SetProcessDpiAwareness(1)  # type: ignore
+    except Exception:
+        pass
+    root.geometry("1000x600")
+    app = TTRScraperGUI(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
