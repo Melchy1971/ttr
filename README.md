@@ -1,54 +1,77 @@
-# click-TT Q-TTR Scraper (Weg 1)
+# click-TT Q-TTR Scraper (Weg 1, groupPools) – GUI
 
-Dieses Tool ermöglicht das Auslesen und Exportieren von Q-TTR-Werten aus click-TT für eine bestimmte Gruppe, Saison und Runde. Die grafische Oberfläche erlaubt eine einfache Bedienung und den Export der Daten als JSON, CSV oder Markdown.
+Dieses Tool ermöglicht das komfortable Auslesen und Exportieren von Q-TTR-Werten aus click-TT für beliebige Gruppen, Saisons und Runden. Die grafische Oberfläche erlaubt eine einfache Bedienung und den Export der Daten als JSON, CSV, Markdown oder Excel.
+
+---
 
 ## Features
 
-- **Eingabemaske** für Base-URL, Saison, Runde, Group-ID, Sprache und Datenformat
-- **Abruf & Parsing** der Q-TTR-Daten (mittels `requests` und `BeautifulSoup`)
-- **Vorschau** der Daten in einer Tabelle
-- **Export** als JSON, CSV oder Markdown
-- **Team-Mittelwerte** werden berechnet und angezeigt
-- **Plattform:** Windows (andere Plattformen möglich)
+- **Einfache GUI**: Übersichtliche Oberfläche für alle Einstellungen und Aktionen
+- **Gruppenverwaltung**: Gruppen (Name & ID) können komfortabel verwaltet und in einer frei wählbaren Datei gespeichert werden (`gruppen.json`)
+- **Konfigurationsspeicherung**: Alle Einstellungen (inkl. Gruppen-Dateipfad) werden in `config.json` gespeichert und beim Start automatisch geladen
+- **Abruf & Parsing**: Q-TTR-Daten werden robust abgerufen (mit HTTP-Retry & Cache) und geparst
+- **Sortierbare Tabelle**: Vorschau der Daten mit Sortierfunktion
+- **Export**: Datenexport als JSON, CSV, Markdown oder XLSX (inkl. Team-Statistiken und Top-10)
+- **Team-Mittelwerte**: Automatische Berechnung und Anzeige der Team-Durchschnitte
+- **Plattformneutral**: Läuft unter Windows, Linux und macOS
+
+---
 
 ## Voraussetzungen
 
-- Python 3.7 oder neuer
+- **Python 3.7+**
 - Benötigte Pakete:
   - `requests`
+  - `requests_cache`
   - `beautifulsoup4`
+  - `openpyxl`
+  - `platformdirs`
 
 Installiere die Abhängigkeiten mit:
 
 ```
-pip install requests beautifulsoup4
+pip install requests requests_cache beautifulsoup4 openpyxl platformdirs
 ```
+
+---
 
 ## Nutzung
 
-1. Starte das Programm:
-
+1. **Starten**  
+   Im Terminal:
    ```
    python start
    ```
 
-2. Gib die gewünschten Parameter ein:
+2. **Parameter eingeben**
    - **Base-URL:** z.B. `https://ttbw.click-tt.de`
-   - **Saison:** z.B. `TTBW 2025/26` (achte auf die Schreibweise wie in der echten URL)
+   - **Saison:** z.B. `TTBW 2025/26`
    - **Runde:** `vorrunde` oder `rueckrunde`
-   - **Group-ID:** z.B. `494514`
+   - **Gruppe:** Auswahl aus Dropdown (Bezeichnung) oder eigene ID
    - **Sprache:** Deutsch oder Englisch
-   - **Datenformat:** JSON, CSV oder Markdown
+   - **Datenformat:** JSON, CSV, Markdown oder XLSX
 
-3. Klicke auf **"Abrufen"**, um die Daten zu laden.
-4. Die Daten werden in der Tabelle angezeigt. Team-Mittelwerte erscheinen im Statusfeld.
-5. Klicke auf **"Speichern ..."**, um die Daten zu exportieren.
+3. **Gruppen verwalten**  
+   Über den Button **"Gruppen …"** können Gruppen (Name & ID) hinzugefügt, geändert oder gelöscht werden.  
+   Der Speicherort der Gruppen-Datei (`gruppen.json`) ist frei wählbar und wird in der Konfiguration gemerkt.
+
+4. **Abrufen & Exportieren**
+   - Mit **"Abrufen"** werden die Daten geladen und in der Tabelle angezeigt.
+   - Mit **"Speichern …"** können die Daten im gewählten Format exportiert werden.
+
+5. **Konfiguration speichern**  
+   Über **"Einstellung"** kann die aktuelle Konfiguration als Standard gespeichert werden (`config.json`).
+
+---
 
 ## Hinweise
 
 - Die Nutzung erfolgt auf eigene Verantwortung. Bitte beachte die Nutzungsbedingungen und Rate-Limits der jeweiligen click-TT-Portale.
 - Bei Problemen mit fehlenden Paketen siehe Abschnitt "Voraussetzungen".
+- Die Konfigurationsdatei (`config.json`) und die Gruppen-Datei (`gruppen.json`) werden im Benutzer-Konfigurationsordner gespeichert (plattformabhängig).
+
+---
 
 ## Lizenz
 
-Dieses Projekt ist Open Source.
+Dieses Projekt ist Open Source. Siehe [LICENSE](LICENSE) für Details.
