@@ -29,7 +29,6 @@ import json
 import re
 import sys
 import threading
-from statistics import mean
 from typing import Dict, List, Optional
 from urllib.parse import quote
 from pathlib import Path
@@ -242,16 +241,39 @@ def _row_to_list(r: Dict) -> List:
     return [r.get("team",""), r.get("rang",""), r.get("qttr",""),
             r.get("name",""), r.get("anmerkung",""), r.get("status","")]
 
+def _aggregate_team_metrics(rows: List[Dict]) -> Dict[str, Dict[str, Optional[int]]]:
+    metrics: Dict[str, Dict[str, Optional[int]]] = {}
+    for row in rows:
+        team = row.get("team", "")
+        if team not in metrics:
+            metrics[team] = {"count": 0, "sum": 0, "min": None, "max": None}
+        val = row.get("qttr")
+        if isinstance(val, int):
+            team_data = metrics[team]
+            team_data["count"] += 1
+            team_data["sum"] += val
+            team_data["min"] = val if team_data["min"] is None else min(team_data["min"], val)
+            team_data["max"] = val if team_data["max"] is None else max(team_data["max"], val)
+    return metrics
+
 def _compute_team_stats(rows: List[Dict]) -> List[Dict]:
+    metrics = _aggregate_team_metrics(rows)
     stats = []
-    teams = sorted({r["team"] for r in rows})
-    for t in teams:
-        vals = [r["qttr"] for r in rows if r["team"] == t and isinstance(r["qttr"], int)]
-        if not vals:
-            stats.append({"Team": t, "Anzahl": 0, "Ø Q-TTR": None, "Min": None, "Max": None})
-        else:
-            stats.append({"Team": t, "Anzahl": len(vals), "Ø Q-TTR": round(mean(vals), 1),
-                          "Min": min(vals), "Max": max(vals)})
+    for team in sorted(metrics):
+        data = metrics[team]
+        count = int(data["count"] or 0)
+        if not count:
+            stats.append({"Team": team, "Anzahl": 0, "Ø Q-TTR": None, "Min": None, "Max": None})
+            continue
+        total = int(data["sum"] or 0)
+        avg = round(total / count, 1)
+        stats.append({
+            "Team": team,
+            "Anzahl": count,
+            "Ø Q-TTR": avg,
+            "Min": data["min"],
+            "Max": data["max"],
+        })
     return stats
 
 def _top_n(rows: List[Dict], n: int = 10) -> List[Dict]:
@@ -384,6 +406,9 @@ class TTRScraperGUI:
 
         cfg = load_config()
         self.groups: List[Dict[str,str]] = load_groups()
+        self._group_labels_cache: List[str] = []
+        self._group_map_cache: Dict[str, str] = {}
+        self._rebuild_group_cache()
         self.var_base    = tk.StringVar(value=cfg.get("base",   "https://ttbw.click-tt.de"))
         self.var_saison  = tk.StringVar(value=cfg.get("saison", "TTBW 2025/26"))
         self.var_runde   = tk.StringVar(value=cfg.get("runde",  "vorrunde"))
@@ -491,8 +516,22 @@ class TTRScraperGUI:
 
     # -------------------- Helpers --------------------
 
-    def _group_labels(self) -> List[str]: return [g.get("label","") for g in self.groups]
-    def _group_map(self) -> Dict[str,str]: return {g.get("label",""): g.get("id","") for g in self.groups}
+    def _rebuild_group_cache(self):
+        mapping: Dict[str, str] = {}
+        for group in self.groups:
+            label = (group.get("label") or "").strip()
+            if not label:
+                continue
+            mapping[label] = (group.get("id") or "").strip()
+        sorted_labels = sorted(mapping, key=str.lower)
+        self._group_labels_cache = sorted_labels
+        self._group_map_cache = {label: mapping[label] for label in sorted_labels}
+
+    def _group_labels(self) -> List[str]:
+        return self._group_labels_cache
+
+    def _group_map(self) -> Dict[str,str]:
+        return self._group_map_cache
     def _sync_group_id_to_label(self):
         gid = self._group_map().get(self.var_group_label.get().strip(), "")
         self.var_group_id.set(gid)
@@ -632,11 +671,12 @@ class TTRScraperGUI:
             self.root.after(0, lambda: self._abort(f"Fehler: {e}"))
 
     def _team_avgs(self, rows: List[Dict]) -> Dict[str, Optional[float]]:
+        metrics = _aggregate_team_metrics(rows)
         avgs: Dict[str, Optional[float]] = {}
-        teams = sorted({r["team"] for r in rows})
-        for t in teams:
-            vals = [r["qttr"] for r in rows if r["team"] == t and isinstance(r["qttr"], int)]
-            avgs[t] = (mean(vals) if vals else None)
+        for team in sorted(metrics):
+            data = metrics[team]
+            count = data["count"] or 0
+            avgs[team] = (data["sum"] / count) if count else None
         return avgs
 
     def _abort(self, msg: str):
@@ -797,6 +837,7 @@ class TTRScraperGUI:
         except Exception as e:
             messagebox.showerror("Fehler", f"Konnte Datei nicht verwenden:\n{e}")
             return
+        self._rebuild_group_cache()
         self.groups_path = new_path
         cfg = load_config(); cfg["groups_path"] = str(new_path); save_config(cfg)
         self.lbl_gpath.config(text=f"Gruppen-Datei: {self.groups_path}")
@@ -855,6 +896,7 @@ class TTRScraperGUI:
             except Exception as e:
                 messagebox.showerror("Fehler", f"Konnte Datei nicht verwenden:\n{e}")
                 return
+            self._rebuild_group_cache()
             self.groups_path = new_path
             cfg = load_config(); cfg["groups_path"] = str(new_path); save_config(cfg)
             lbl.config(text=f"Datei: {self.groups_path}")
@@ -888,6 +930,7 @@ class TTRScraperGUI:
                     g["id"] = gid; break
             else:
                 self.groups.append({"label": label, "id": gid})
+            self._rebuild_group_cache()
             save_groups(self.groups, self.groups_path)
             refresh_tree(); self._refresh_group_dropdown()
         def delete_selected():
@@ -895,6 +938,7 @@ class TTRScraperGUI:
             if not sel: return
             label = tree.item(sel[0], "values")[0]
             self.groups = [g for g in self.groups if g.get("label","") != label]
+            self._rebuild_group_cache()
             save_groups(self.groups, self.groups_path)
             refresh_tree(); self._refresh_group_dropdown()
         def close_dialog():
@@ -914,9 +958,10 @@ class TTRScraperGUI:
         refresh_tree()
 
     def _refresh_group_dropdown(self):
-        self.cmb_group.config(values=self._group_labels())
-        if self.var_group_label.get() not in self._group_labels() and self._group_labels():
-            self.var_group_label.set(self._group_labels()[0])
+        labels = self._group_labels()
+        self.cmb_group.config(values=labels)
+        if self.var_group_label.get() not in labels and labels:
+            self.var_group_label.set(labels[0])
         self._sync_group_id_to_label()
 
     def _save_current_config(self):
